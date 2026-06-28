@@ -1,0 +1,19 @@
+# 面试练习助手 - 依赖列表
+
+# 音频捕获
+pyaudio==0.2.14
+
+# GUI 框架
+PyQt5==5.15.11
+
+# 快捷键监听
+pynput==1.7.7
+
+# HTTP 请求
+requests==2.32.3
+
+# YAML 配置
+PyYAML==6.0.2
+
+# 系统音频（Windows）
+pyaudiowpatch==0.2.12
