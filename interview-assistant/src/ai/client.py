@@ -142,11 +142,14 @@ class AIClient:
         }
 
         try:
+            print(f"调用 API：{url}")
+            print(f"模型：{self.model}")
+
             response = requests.post(
                 url,
                 headers=headers,
                 json=data,
-                timeout=30
+                timeout=60  # 增加超时时间到 60 秒
             )
 
             if response.status_code == 200:
