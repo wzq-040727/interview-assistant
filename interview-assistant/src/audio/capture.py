@@ -57,6 +57,41 @@ class AudioCapture:
         except Exception:
             return None
 
+    def _get_supported_sample_rate(self, device_index: int) -> int:
+        """
+        获取设备支持的采样率
+
+        Args:
+            device_index: 设备索引
+
+        Returns:
+            支持的采样率
+        """
+        if self.pa is None:
+            return self.sample_rate
+
+        device_info = self.pa.get_device_info_by_index(device_index)
+        default_sample_rate = int(device_info.get('defaultSampleRate', 44100))
+
+        # 尝试常见的采样率
+        common_rates = [16000, 44100, 48000, 22050, 11025]
+        for rate in common_rates:
+            try:
+                # 检查是否支持该采样率
+                supported = self.pa.is_format_supported(
+                    rate,
+                    input_device=device_index,
+                    input_channels=self.channels,
+                    input_format=pyaudio.paInt16
+                )
+                if supported:
+                    return rate
+            except Exception:
+                continue
+
+        # 如果都不支持，返回设备默认采样率
+        return default_sample_rate
+
     def start(self, callback: Callable[[bytes], None]) -> bool:
         """
         开始捕获音频
@@ -79,15 +114,22 @@ class AudioCapture:
                 print("错误：未找到音频输入设备")
                 return False
 
+            # 获取设备支持的采样率
+            actual_sample_rate = self._get_supported_sample_rate(device_index)
+            print(f"使用采样率：{actual_sample_rate} Hz")
+
             # 打开音频流
             self.stream = self.pa.open(
                 format=pyaudio.paInt16,
                 channels=self.channels,
-                rate=self.sample_rate,
+                rate=actual_sample_rate,
                 input=True,
                 input_device_index=device_index,
                 frames_per_buffer=self.chunk_size
             )
+
+            # 更新实际采样率
+            self.sample_rate = actual_sample_rate
 
             self.callback = callback
             self.is_running = True
