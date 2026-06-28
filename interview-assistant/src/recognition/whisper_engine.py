@@ -1,34 +1,53 @@
 """
 语音识别模块
-使用 API 进行语音识别（兼容 OpenAI Whisper API）
+支持本地 Whisper 模型和 API 两种模式
 """
 
-import requests
-import io
-import json
+import whisper
+import numpy as np
+import tempfile
+import os
 from typing import Optional
 from ..audio.processor import AudioConverter
 
 
 class SpeechRecognizer:
-    """语音识别器，使用 API 进行语音转文字"""
+    """语音识别器，支持本地 Whisper 和 API 两种模式"""
 
-    def __init__(self, api_url: str, api_key: str, language: str = "zh",
-                 model: str = "whisper-1"):
+    def __init__(self, mode: str = "local", api_url: str = "", api_key: str = "",
+                 language: str = "zh", model: str = "base"):
         """
         初始化语音识别器
 
         Args:
-            api_url: API 地址
-            api_key: API 密钥
+            mode: 识别模式 "local" 或 "api"
+            api_url: API 地址（API 模式）
+            api_key: API 密钥（API 模式）
             language: 语言代码
-            model: 模型名称
+            model: 模型名称（本地模式：tiny/base/small/medium/large）
         """
+        self.mode = mode
         self.api_url = api_url
         self.api_key = api_key
         self.language = language
-        self.model = model
+        self.model_name = model
         self.converter = AudioConverter()
+
+        # 本地 Whisper 模型
+        self.whisper_model = None
+
+        if mode == "local":
+            self._load_local_model()
+
+    def _load_local_model(self):
+        """加载本地 Whisper 模型"""
+        try:
+            print(f"正在加载 Whisper 模型：{self.model_name}...")
+            self.whisper_model = whisper.load_model(self.model_name)
+            print("Whisper 模型加载完成")
+        except Exception as e:
+            print(f"加载 Whisper 模型失败：{e}")
+            self.whisper_model = None
 
     def recognize(self, audio_data: bytes, sample_rate: int = 16000,
                   channels: int = 1) -> Optional[str]:
@@ -44,6 +63,81 @@ class SpeechRecognizer:
             识别出的文字，如果识别失败返回 None
         """
         try:
+            if self.mode == "local":
+                return self._recognize_local(audio_data, sample_rate, channels)
+            else:
+                return self._recognize_api(audio_data, sample_rate, channels)
+
+        except Exception as e:
+            print(f"语音识别失败：{e}")
+            return None
+
+    def _recognize_local(self, audio_data: bytes, sample_rate: int,
+                         channels: int) -> Optional[str]:
+        """
+        使用本地 Whisper 模型识别
+
+        Args:
+            audio_data: 原始音频数据
+            sample_rate: 采样率
+            channels: 声道数
+
+        Returns:
+            识别出的文字
+        """
+        if self.whisper_model is None:
+            print("Whisper 模型未加载")
+            return None
+
+        try:
+            # 转换为 numpy 数组
+            audio_array = np.frombuffer(audio_data, dtype=np.int16)
+
+            # 转换为 float32 并归一化
+            audio_float = audio_array.astype(np.float32) / 32768.0
+
+            # 如果是立体声，转换为单声道
+            if channels == 2:
+                audio_float = audio_float.reshape(-1, 2).mean(axis=1)
+
+            # 重采样到 16kHz（Whisper 要求）
+            if sample_rate != 16000:
+                # 简单的重采样
+                target_length = int(len(audio_float) * 16000 / sample_rate)
+                indices = np.linspace(0, len(audio_float) - 1, target_length)
+                audio_float = np.interp(indices, np.arange(len(audio_float)), audio_float)
+
+            # 使用 Whisper 识别
+            result = self.whisper_model.transcribe(
+                audio_float,
+                language=self.language,
+                fp16=False  # Windows 上使用 CPU 模式
+            )
+
+            text = result.get('text', '').strip()
+            return text if text else None
+
+        except Exception as e:
+            print(f"本地识别失败：{e}")
+            return None
+
+    def _recognize_api(self, audio_data: bytes, sample_rate: int,
+                       channels: int) -> Optional[str]:
+        """
+        使用 API 识别
+
+        Args:
+            audio_data: 原始音频数据
+            sample_rate: 采样率
+            channels: 声道数
+
+        Returns:
+            识别出的文字
+        """
+        import requests
+        import json
+
+        try:
             # 转换为 WAV 格式
             wav_data = self.converter.convert_to_wav(
                 audio_data,
@@ -52,37 +146,19 @@ class SpeechRecognizer:
             )
 
             # 调用 API
-            text = self._call_api(wav_data)
-            return text
+            headers = {
+                'Authorization': f'Bearer {self.api_key}'
+            }
 
-        except Exception as e:
-            print(f"语音识别失败：{e}")
-            return None
+            files = {
+                'file': ('audio.wav', wav_data, 'audio/wav')
+            }
 
-    def _call_api(self, wav_data: bytes) -> Optional[str]:
-        """
-        调用语音识别 API
+            data = {
+                'model': 'whisper-1',
+                'language': self.language
+            }
 
-        Args:
-            wav_data: WAV 格式的音频数据
-
-        Returns:
-            识别出的文字
-        """
-        headers = {
-            'Authorization': f'Bearer {self.api_key}'
-        }
-
-        files = {
-            'file': ('audio.wav', wav_data, 'audio/wav')
-        }
-
-        data = {
-            'model': self.model,
-            'language': self.language
-        }
-
-        try:
             response = requests.post(
                 self.api_url,
                 headers=headers,
@@ -96,17 +172,11 @@ class SpeechRecognizer:
                 text = result.get('text', '').strip()
                 return text if text else None
             else:
-                print(f"API 错误：{response.status_code} - {response.text}")
+                print(f"API 错误：{response.status_code}")
                 return None
 
-        except requests.exceptions.Timeout:
-            print("API 请求超时")
-            return None
-        except requests.exceptions.RequestException as e:
-            print(f"API 请求失败：{e}")
-            return None
-        except json.JSONDecodeError:
-            print("API 响应格式错误")
+        except Exception as e:
+            print(f"API 识别失败：{e}")
             return None
 
     def recognize_stream(self, audio_chunks: list, sample_rate: int = 16000,
@@ -141,9 +211,19 @@ class SpeechRecognizerFactory:
         Returns:
             SpeechRecognizer 实例
         """
-        return SpeechRecognizer(
-            api_url=config.get('api_url', ''),
-            api_key=config.get('api_key', ''),
-            language=config.get('language', 'zh'),
-            model=config.get('model', 'whisper-1')
-        )
+        # 检查是否使用本地模式
+        use_local = config.get('use_local', True)
+
+        if use_local:
+            return SpeechRecognizer(
+                mode="local",
+                language=config.get('language', 'zh'),
+                model=config.get('model', 'base')
+            )
+        else:
+            return SpeechRecognizer(
+                mode="api",
+                api_url=config.get('api_url', ''),
+                api_key=config.get('api_key', ''),
+                language=config.get('language', 'zh')
+            )

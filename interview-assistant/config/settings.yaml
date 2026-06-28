@@ -9,10 +9,12 @@ audio:
 
 # 语音识别配置
 recognition:
+  use_local: true  # true: 使用本地 Whisper, false: 使用 API
+  model: "base"    # 本地模型：tiny/base/small/medium/large
+  language: "zh"
+  # API 配置（仅当 use_local 为 false 时使用）
   api_url: "https://token-plan-cn.xiaomimimo.com/v1/audio/transcriptions"
   api_key: "your-api-key"
-  language: "zh"
-  model: "whisper-1"
 
 # AI 答案生成配置
 ai:
