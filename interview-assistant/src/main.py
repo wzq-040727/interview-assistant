@@ -111,7 +111,8 @@ class InterviewAssistant:
             self.audio_capture = AudioCapture(
                 sample_rate=audio_config.get('sample_rate', 16000),
                 channels=audio_config.get('channels', 1),
-                chunk_size=audio_config.get('chunk_size', 1024)
+                chunk_size=audio_config.get('chunk_size', 1024),
+                source=audio_config.get('source', 'microphone')
             )
 
             # 初始化系统托盘

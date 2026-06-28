@@ -13,7 +13,8 @@ from typing import Callable, Optional
 class AudioCapture:
     """音频捕获类，用于捕获系统音频输出"""
 
-    def __init__(self, sample_rate: int = 16000, channels: int = 1, chunk_size: int = 1024):
+    def __init__(self, sample_rate: int = 16000, channels: int = 1, chunk_size: int = 1024,
+                 source: str = "system"):
         """
         初始化音频捕获
 
@@ -21,10 +22,12 @@ class AudioCapture:
             sample_rate: 采样率
             channels: 声道数
             chunk_size: 每次读取的帧数
+            source: 音频源 "system"（系统音频）或 "microphone"（麦克风）
         """
         self.sample_rate = sample_rate
         self.channels = channels
         self.chunk_size = chunk_size
+        self.source = source
 
         self.pa: Optional[pyaudio.PyAudio] = None
         self.stream: Optional[pyaudio.Stream] = None
@@ -51,6 +54,30 @@ class AudioCapture:
                     return i
 
         # 如果没有找到 WASAPI 设备，尝试使用默认输入设备
+        try:
+            default_input = self.pa.get_default_input_device_info()
+            return default_input.get('index')
+        except Exception:
+            return None
+
+    def _find_microphone(self) -> Optional[int]:
+        """
+        查找麦克风设备
+
+        Returns:
+            设备索引，如果未找到返回 None
+        """
+        if self.pa is None:
+            return None
+
+        # 列出所有输入设备
+        print("\n可用的输入设备：")
+        for i in range(self.pa.get_device_count()):
+            device_info = self.pa.get_device_info_by_index(i)
+            if device_info.get('maxInputChannels', 0) > 0:
+                print(f"  {i}: {device_info.get('name', 'Unknown')}")
+
+        # 使用默认输入设备
         try:
             default_input = self.pa.get_default_input_device_info()
             return default_input.get('index')
@@ -108,8 +135,14 @@ class AudioCapture:
         try:
             self.pa = pyaudio.PyAudio()
 
-            # 查找环回设备
-            device_index = self._find_wasapi_loopback()
+            # 根据音频源选择设备
+            if self.source == "microphone":
+                device_index = self._find_microphone()
+                print("使用麦克风输入")
+            else:
+                device_index = self._find_wasapi_loopback()
+                print("使用系统音频输入")
+
             if device_index is None:
                 print("错误：未找到音频输入设备")
                 return False
