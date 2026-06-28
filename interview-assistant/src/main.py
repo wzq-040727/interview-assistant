@@ -154,7 +154,7 @@ class InterviewAssistant:
         menu.addSeparator()
 
         quit_action = QAction("退出", menu)
-        quit_action.connect(self.quit)
+        quit_action.triggered.connect(self.quit)
         menu.addAction(quit_action)
 
         self.tray_icon.setContextMenu(menu)
