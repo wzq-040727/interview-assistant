@@ -70,21 +70,10 @@ class InterviewAssistant:
 
             # 初始化语音识别器
             recognition_config = self.config.get_section('recognition')
-            use_local = recognition_config.get('use_local', True)
-
-            if use_local:
-                self.speech_recognizer = SpeechRecognizer(
-                    mode="local",
-                    language=recognition_config.get('language', 'zh'),
-                    model=recognition_config.get('model', 'base')
-                )
-            else:
-                self.speech_recognizer = SpeechRecognizer(
-                    mode="api",
-                    api_url=recognition_config.get('api_url', ''),
-                    api_key=recognition_config.get('api_key', ''),
-                    language=recognition_config.get('language', 'zh')
-                )
+            self.speech_recognizer = SpeechRecognizer(
+                language=recognition_config.get('language', 'zh-CN'),
+                engine=recognition_config.get('engine', 'google')
+            )
 
             # 初始化问题检测器
             filter_config = self.config.get_section('filter')
