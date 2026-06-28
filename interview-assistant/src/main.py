@@ -7,8 +7,13 @@ import sys
 import os
 import signal
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QAction
-from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtCore import QTimer, Qt, pyqtSignal, QObject
 from PyQt5.QtGui import QIcon
+
+
+class AnswerSignal(QObject):
+    """答案信号，用于线程间通信"""
+    answer_ready = pyqtSignal(str, object)
 
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -48,6 +53,9 @@ class InterviewAssistant:
 
         # 状态
         self.is_running = False
+
+        # 信号（用于线程间通信）
+        self.answer_signal = AnswerSignal()
 
     def initialize(self) -> bool:
         """
@@ -117,6 +125,9 @@ class InterviewAssistant:
 
             # 初始化系统托盘
             self._init_tray_icon()
+
+            # 连接信号（用于线程间通信）
+            self.answer_signal.answer_ready.connect(self._show_answer_in_main_thread)
 
             print("所有模块初始化完成")
             return True
@@ -224,9 +235,20 @@ class InterviewAssistant:
                     answer = self.answer_generator.generate(text)
 
                     if answer:
-                        # 显示答案
-                        self.overlay.show_answer(text, answer)
-                        print("答案已显示")
+                        # 使用信号在主线程中显示答案
+                        self.answer_signal.answer_ready.emit(text, answer)
+                        print("答案已生成")
+
+    def _show_answer_in_main_thread(self, question: str, answer):
+        """
+        在主线程中显示答案
+
+        Args:
+            question: 问题
+            answer: 答案
+        """
+        self.overlay.show_answer(question, answer)
+        print("答案已显示")
 
     def stop(self):
         """停止面试练习助手"""
