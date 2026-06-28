@@ -272,6 +272,21 @@ class InterviewAssistant:
 def main():
     """主函数"""
     assistant = InterviewAssistant()
+
+    # 设置信号处理（Windows 兼容）
+    def signal_handler(sig, frame):
+        print("\n正在退出...")
+        assistant.quit()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # 在 Windows 上需要定时器来处理信号
+    timer = QTimer()
+    timer.timeout.connect(lambda: None)  # 允许信号处理
+    timer.start(100)
+
     assistant.run()
 
 
