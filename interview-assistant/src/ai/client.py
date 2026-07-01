@@ -5,7 +5,7 @@ AI API 客户端模块
 
 import requests
 import json
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Generator
 from dataclasses import dataclass
 
 
@@ -41,23 +41,18 @@ class AIClient:
         self.conversation_history: List[Message] = []
 
         # 系统提示
-        self.system_prompt = """你是一个技术面试助手。请根据面试官的问题，提供完整的答案。
+        self.system_prompt = """技术面试助手。直接回答，不废话。
 
-回答格式要求：
-1. 问题复述：简要复述问题
-2. 完整答案：详细解答
-3. 关键点：列出 3-5 个关键点
-4. 代码示例：如果适用，提供代码示例
-
-注意：
-- 答案要准确、专业
-- 代码示例要简洁、可运行
-- 关键点要突出重点
-- 使用中文回答"""
+格式：
+答案：（精炼解答）
+关键点：
+• 要点
+代码示例：
+```代码```"""
 
     def generate_answer(self, question: str, context: Optional[str] = None) -> Optional[str]:
         """
-        生成答案
+        生成答案（非流式）
 
         Args:
             question: 问题
@@ -67,14 +62,10 @@ class AIClient:
             生成的答案，如果失败返回 None
         """
         try:
-            # 构建消息
             messages = self._build_messages(question, context)
-
-            # 调用 API
             response = self._call_api(messages)
 
             if response:
-                # 保存到对话历史
                 self.conversation_history.append(Message(role="user", content=question))
                 self.conversation_history.append(Message(role="assistant", content=response))
 
@@ -84,33 +75,39 @@ class AIClient:
             print(f"生成答案失败：{e}")
             return None
 
-    def _build_messages(self, question: str, context: Optional[str] = None) -> List[Dict[str, str]]:
+    def generate_answer_stream(self, question: str, context: Optional[str] = None) -> Generator[str, None, None]:
         """
-        构建消息列表
+        流式生成答案
 
         Args:
             question: 问题
-            context: 上下文
+            context: 上下文（可选）
 
-        Returns:
-            消息列表
+        Yields:
+            生成的文本片段
         """
+        try:
+            messages = self._build_messages(question, context)
+            full_response = ""
+
+            for chunk in self._call_api_stream(messages):
+                full_response += chunk
+                yield chunk
+
+            if full_response:
+                self.conversation_history.append(Message(role="user", content=question))
+                self.conversation_history.append(Message(role="assistant", content=full_response))
+
+        except Exception as e:
+            print(f"流式生成答案失败：{e}")
+            yield f"生成失败：{e}"
+
+    def _build_messages(self, question: str, context: Optional[str] = None) -> List[Dict[str, str]]:
+        """构建消息列表"""
         messages = []
 
         # 系统提示
         messages.append({"role": "system", "content": self.system_prompt})
-
-        # 添加对话历史（保留最近 5 轮）
-        recent_history = self.conversation_history[-10:] if self.conversation_history else []
-        for msg in recent_history:
-            messages.append({"role": msg.role, "content": msg.content})
-
-        # 添加上下文
-        if context:
-            messages.append({
-                "role": "system",
-                "content": f"上下文信息：\n{context}"
-            })
 
         # 添加当前问题
         messages.append({"role": "user", "content": question})
@@ -118,15 +115,7 @@ class AIClient:
         return messages
 
     def _call_api(self, messages: List[Dict[str, str]]) -> Optional[str]:
-        """
-        调用 AI API
-
-        Args:
-            messages: 消息列表
-
-        Returns:
-            生成的文本
-        """
+        """调用 AI API（非流式）"""
         url = f"{self.base_url}/chat/completions"
 
         headers = {
@@ -142,15 +131,7 @@ class AIClient:
         }
 
         try:
-            print(f"调用 API：{url}")
-            print(f"模型：{self.model}")
-
-            response = requests.post(
-                url,
-                headers=headers,
-                json=data,
-                timeout=60  # 增加超时时间到 60 秒
-            )
+            response = requests.post(url, headers=headers, json=data, timeout=60)
 
             if response.status_code == 200:
                 result = response.json()
@@ -160,7 +141,7 @@ class AIClient:
                     return content.strip() if content else None
                 return None
             else:
-                print(f"API 错误：{response.status_code} - {response.text}")
+                print(f"API 错误：{response.status_code}")
                 return None
 
         except requests.exceptions.Timeout:
@@ -169,21 +150,58 @@ class AIClient:
         except requests.exceptions.RequestException as e:
             print(f"API 请求失败：{e}")
             return None
-        except json.JSONDecodeError:
-            print("API 响应格式错误")
-            return None
+
+    def _call_api_stream(self, messages: List[Dict[str, str]]) -> Generator[str, None, None]:
+        """调用 AI API（流式）"""
+        url = f"{self.base_url}/chat/completions"
+
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {self.api_key}'
+        }
+
+        data = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "stream": True
+        }
+
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=60, stream=True)
+
+            if response.status_code != 200:
+                print(f"API 错误：{response.status_code}")
+                return
+
+            for line in response.iter_lines():
+                if line:
+                    line = line.decode('utf-8')
+                    if line.startswith('data: '):
+                        line = line[6:]
+                        if line.strip() == '[DONE]':
+                            break
+                        try:
+                            chunk = json.loads(line)
+                            delta = chunk.get('choices', [{}])[0].get('delta', {})
+                            content = delta.get('content', '')
+                            if content:
+                                yield content
+                        except json.JSONDecodeError:
+                            continue
+
+        except requests.exceptions.Timeout:
+            print("API 请求超时")
+        except requests.exceptions.RequestException as e:
+            print(f"API 请求失败：{e}")
 
     def clear_history(self):
         """清空对话历史"""
         self.conversation_history.clear()
 
     def get_history(self) -> List[Message]:
-        """
-        获取对话历史
-
-        Returns:
-            消息列表
-        """
+        """获取对话历史"""
         return self.conversation_history.copy()
 
 
@@ -192,15 +210,7 @@ class AIClientFactory:
 
     @staticmethod
     def create(config: dict) -> AIClient:
-        """
-        根据配置创建 AI 客户端
-
-        Args:
-            config: 配置字典
-
-        Returns:
-            AIClient 实例
-        """
+        """根据配置创建 AI 客户端"""
         return AIClient(
             base_url=config.get('base_url', ''),
             api_key=config.get('api_key', ''),

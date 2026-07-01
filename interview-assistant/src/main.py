@@ -6,6 +6,7 @@
 import sys
 import os
 import signal
+import threading
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QAction
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal, QObject
 from PyQt5.QtGui import QIcon
@@ -13,7 +14,9 @@ from PyQt5.QtGui import QIcon
 
 class AnswerSignal(QObject):
     """答案信号，用于线程间通信"""
-    answer_ready = pyqtSignal(str, object)
+    answer_ready = pyqtSignal(str, object)  # 完整答案
+    stream_update = pyqtSignal(str, str)  # 问题, 当前文本
+
 
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -58,12 +61,7 @@ class InterviewAssistant:
         self.answer_signal = AnswerSignal()
 
     def initialize(self) -> bool:
-        """
-        初始化所有模块
-
-        Returns:
-            是否成功初始化
-        """
+        """初始化所有模块"""
         try:
             # 创建 QApplication
             self.app = QApplication(sys.argv)
@@ -128,6 +126,7 @@ class InterviewAssistant:
 
             # 连接信号（用于线程间通信）
             self.answer_signal.answer_ready.connect(self._show_answer_in_main_thread)
+            self.answer_signal.stream_update.connect(self._update_stream_in_main_thread)
 
             print("所有模块初始化完成")
             return True
@@ -140,7 +139,6 @@ class InterviewAssistant:
         """初始化系统托盘图标"""
         self.tray_icon = QSystemTrayIcon()
 
-        # 创建简单的图标（白色圆形）
         from PyQt5.QtGui import QPixmap, QPainter, QBrush, QColor
         pixmap = QPixmap(32, 32)
         pixmap.fill(Qt.transparent)
@@ -154,7 +152,6 @@ class InterviewAssistant:
         self.tray_icon.setIcon(QIcon(pixmap))
         self.tray_icon.setToolTip("面试练习助手")
 
-        # 创建菜单
         menu = QMenu()
 
         show_action = QAction("显示/隐藏", menu)
@@ -168,19 +165,10 @@ class InterviewAssistant:
         menu.addAction(quit_action)
 
         self.tray_icon.setContextMenu(menu)
-
-        # 点击托盘图标切换显示
         self.tray_icon.activated.connect(self._on_tray_activated)
-
         self.tray_icon.show()
 
     def _on_tray_activated(self, reason):
-        """
-        托盘图标激活事件
-
-        Args:
-            reason: 激活原因
-        """
         if reason == QSystemTrayIcon.Trigger:
             self.overlay.toggle()
 
@@ -189,12 +177,10 @@ class InterviewAssistant:
         if self.is_running:
             return
 
-        # 启动快捷键监听
         if not self.hotkey_manager.start():
             print("快捷键监听启动失败")
             return
 
-        # 启动音频捕获
         if not self.audio_capture.start(self._on_audio_frame):
             print("音频捕获启动失败")
             return
@@ -204,18 +190,10 @@ class InterviewAssistant:
         print(f"按 {self.config.get('ui.hotkey', 'ctrl+b')} 显示/隐藏悬浮窗")
 
     def _on_audio_frame(self, audio_data: bytes):
-        """
-        音频帧回调
-
-        Args:
-            audio_data: 音频数据
-        """
-        # 处理音频帧
+        """音频帧回调"""
         is_segment_end, segment_data = self.audio_processor.process_frame(audio_data)
 
-        # 如果检测到语音段结束
         if is_segment_end and segment_data:
-            # 语音识别
             text = self.speech_recognizer.recognize(
                 segment_data,
                 sample_rate=self.config.get('audio.sample_rate', 16000),
@@ -225,28 +203,42 @@ class InterviewAssistant:
             if text:
                 print(f"识别到语音：{text}")
 
-                # 检测是否是问题
                 result = self.question_detector.detect(text)
 
                 if result.is_question:
                     print(f"检测到问题（置信度：{result.confidence:.2f}）：{text}")
 
-                    # 生成答案
-                    answer = self.answer_generator.generate(text)
+                    # 使用流式生成
+                    self._generate_stream(text)
 
-                    if answer:
-                        # 使用信号在主线程中显示答案
-                        self.answer_signal.answer_ready.emit(text, answer)
-                        print("答案已生成")
+    def _generate_stream(self, question: str):
+        """流式生成答案（在子线程中）"""
+        def stream_worker():
+            try:
+                full_text = ""
+                for chunk in self.answer_generator.generate_stream(question):
+                    full_text += chunk
+                    # 每收到一块就更新 UI
+                    self.answer_signal.stream_update.emit(question, full_text)
+
+                # 生成完成，格式化最终答案
+                from src.ai.answer_generator import AnswerFormatter
+                formatter = AnswerFormatter()
+                formatted = formatter.format(question, full_text)
+                self.answer_signal.answer_ready.emit(question, formatted)
+
+            except Exception as e:
+                print(f"流式生成失败：{e}")
+
+        thread = threading.Thread(target=stream_worker, daemon=True)
+        thread.start()
+
+    def _update_stream_in_main_thread(self, question: str, text: str):
+        """主线程中更新流式文本"""
+        self.overlay.show_streaming(question, text)
 
     def _show_answer_in_main_thread(self, question: str, answer):
-        """
-        在主线程中显示答案
-
-        Args:
-            question: 问题
-            answer: 答案
-        """
+        """主线程中显示最终答案"""
         self.overlay.show_answer(question, answer)
         print("答案已显示")
 
@@ -255,11 +247,9 @@ class InterviewAssistant:
         if not self.is_running:
             return
 
-        # 停止音频捕获
         if self.audio_capture:
             self.audio_capture.stop()
 
-        # 停止快捷键监听
         if self.hotkey_manager:
             self.hotkey_manager.stop()
 
@@ -270,11 +260,9 @@ class InterviewAssistant:
         """退出程序"""
         self.stop()
 
-        # 隐藏托盘图标
         if self.tray_icon:
             self.tray_icon.hide()
 
-        # 退出应用
         if self.app:
             self.app.quit()
 
@@ -285,8 +273,6 @@ class InterviewAssistant:
             sys.exit(1)
 
         self.start()
-
-        # 运行主循环
         sys.exit(self.app.exec_())
 
 
@@ -294,7 +280,6 @@ def main():
     """主函数"""
     assistant = InterviewAssistant()
 
-    # 设置信号处理（Windows 兼容）
     def signal_handler(sig, frame):
         print("\n正在退出...")
         assistant.quit()
@@ -303,9 +288,8 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    # 在 Windows 上需要定时器来处理信号
     timer = QTimer()
-    timer.timeout.connect(lambda: None)  # 允许信号处理
+    timer.timeout.connect(lambda: None)
     timer.start(100)
 
     assistant.run()

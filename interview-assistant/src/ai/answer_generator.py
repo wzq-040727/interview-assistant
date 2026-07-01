@@ -4,7 +4,7 @@
 """
 
 import re
-from typing import Optional, Dict
+from typing import Optional, Dict, Generator
 from dataclasses import dataclass
 
 
@@ -27,34 +27,20 @@ class AnswerFormatter:
         self.section_patterns = {
             'question': [
                 r'(?:问题复述|问题|题目)[：:]\s*(.*?)(?=\n(?:完整答案|答案|解答)|\Z)',
-                r'(?:1\.|一、)\s*(?:问题复述|问题|题目)[：:]\s*(.*?)(?=\n(?:2\.|二、)|\Z)',
             ],
             'answer': [
-                r'(?:完整答案|答案|解答|详细解答)[：:]\s*(.*?)(?=\n(?:关键点|要点|重点)|\Z)',
-                r'(?:2\.|二、)\s*(?:完整答案|答案|解答)[：:]\s*(.*?)(?=\n(?:3\.|三、)|\Z)',
+                r'(?:答案|完整答案|解答)[：:]\s*(.*?)(?=\n关键点[：:]|\Z)',
             ],
             'key_points': [
-                r'(?:关键点|要点|重点)[：:]\s*(.*?)(?=\n(?:代码示例|代码|示例)|\Z)',
-                r'(?:3\.|三、)\s*(?:关键点|要点|重点)[：:]\s*(.*?)(?=\n(?:4\.|四、)|\Z)',
+                r'(?:关键点|要点|重点)[：:]\s*(.*?)(?=\n代码示例[：:]|\Z)',
             ],
             'code': [
-                r'(?:代码示例|代码|示例)[：:]\s*(.*?)(?=\Z)',
-                r'(?:4\.|四、)\s*(?:代码示例|代码|示例)[：:]\s*(.*?)(?=\Z)',
+                r'(?:代码示例|代码)[：:]\s*(.*?)(?=\Z)',
             ]
         }
 
     def format(self, question: str, raw_answer: str) -> FormattedAnswer:
-        """
-        格式化答案
-
-        Args:
-            question: 原始问题
-            raw_answer: AI 生成的原始答案
-
-        Returns:
-            FormattedAnswer 格式化的答案
-        """
-        # 提取各部分
+        """格式化答案"""
         extracted_question = self._extract_section(raw_answer, 'question') or question
         extracted_answer = self._extract_section(raw_answer, 'answer') or raw_answer
         extracted_key_points = self._extract_key_points(raw_answer)
@@ -69,16 +55,7 @@ class AnswerFormatter:
         )
 
     def _extract_section(self, text: str, section: str) -> Optional[str]:
-        """
-        提取指定部分
-
-        Args:
-            text: 文本
-            section: 部分名称
-
-        Returns:
-            提取的内容
-        """
+        """提取指定部分"""
         patterns = self.section_patterns.get(section, [])
         for pattern in patterns:
             match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
@@ -87,15 +64,7 @@ class AnswerFormatter:
         return None
 
     def _extract_key_points(self, text: str) -> list:
-        """
-        提取关键点
-
-        Args:
-            text: 文本
-
-        Returns:
-            关键点列表
-        """
+        """提取关键点"""
         key_points = []
 
         # 尝试提取带编号的关键点
@@ -113,32 +82,22 @@ class AnswerFormatter:
 
         # 如果没有找到，尝试按行提取
         if not key_points:
-            # 查找关键点部分
             key_points_section = self._extract_section(text, 'key_points')
             if key_points_section:
                 lines = key_points_section.split('\n')
                 for line in lines:
                     line = line.strip()
                     if line and len(line) > 5:
-                        # 移除编号和符号
                         line = re.sub(r'^[•·\-*\d.、]+\s*', '', line)
                         if line:
                             key_points.append(line)
 
-        return key_points[:5]  # 最多返回 5 个关键点
+        return key_points[:5]
 
     def _extract_code(self, text: str) -> Optional[str]:
-        """
-        提取代码示例
-
-        Args:
-            text: 文本
-
-        Returns:
-            代码示例
-        """
+        """提取代码示例"""
         # 尝试提取代码块
-        code_block_pattern = r'```(?:\w+)?\n(.*?)```'
+        code_block_pattern = r'```[\w]*\n(.*?)```'
         match = re.search(code_block_pattern, text, re.DOTALL)
         if match:
             return match.group(1).strip()
@@ -146,7 +105,6 @@ class AnswerFormatter:
         # 尝试提取代码部分
         code_section = self._extract_section(text, 'code')
         if code_section:
-            # 清理代码
             code_lines = []
             for line in code_section.split('\n'):
                 line = line.strip()
@@ -162,37 +120,41 @@ class AnswerGenerator:
     """答案生成器"""
 
     def __init__(self, ai_client, formatter: Optional[AnswerFormatter] = None):
-        """
-        初始化答案生成器
-
-        Args:
-            ai_client: AI 客户端
-            formatter: 答案格式化器
-        """
+        """初始化答案生成器"""
         self.ai_client = ai_client
         self.formatter = formatter or AnswerFormatter()
 
     def generate(self, question: str, context: Optional[str] = None) -> Optional[FormattedAnswer]:
-        """
-        生成答案
-
-        Args:
-            question: 问题
-            context: 上下文
-
-        Returns:
-            格式化的答案
-        """
-        # 调用 AI 生成答案
+        """生成答案（非流式）"""
         raw_answer = self.ai_client.generate_answer(question, context)
 
         if not raw_answer:
             return None
 
-        # 格式化答案
         formatted_answer = self.formatter.format(question, raw_answer)
-
         return formatted_answer
+
+    def generate_stream(self, question: str, context: Optional[str] = None) -> Generator[str, None, FormattedAnswer]:
+        """
+        流式生成答案
+
+        Args:
+            question: 问题
+            context: 上下文
+
+        Yields:
+            文本片段
+
+        Returns:
+            格式化的答案（通过 StopIteration.value）
+        """
+        full_text = ""
+        for chunk in self.ai_client.generate_answer_stream(question, context):
+            full_text += chunk
+            yield chunk
+
+        # 返回格式化的答案
+        return self.formatter.format(question, full_text)
 
     def clear_context(self):
         """清空上下文"""
@@ -204,13 +166,5 @@ class AnswerGeneratorFactory:
 
     @staticmethod
     def create(ai_client) -> AnswerGenerator:
-        """
-        创建答案生成器
-
-        Args:
-            ai_client: AI 客户端
-
-        Returns:
-            AnswerGenerator 实例
-        """
+        """创建答案生成器"""
         return AnswerGenerator(ai_client)

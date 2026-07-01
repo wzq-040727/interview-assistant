@@ -6,7 +6,8 @@
 import sys
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QTextEdit, QApplication, QSystemTrayIcon, QMenu, QAction
+    QTextEdit, QApplication, QSystemTrayIcon, QMenu, QAction,
+    QSplitter, QScrollBar
 )
 from PyQt5.QtCore import Qt, QPoint, pyqtSignal
 from PyQt5.QtGui import QFont, QColor, QPalette, QIcon, QPainter, QBrush
@@ -33,8 +34,8 @@ class OverlayWindow(QWidget):
         self.font_size = config.get('font_size', 14)
         self.font_family = config.get('font_family', 'Microsoft YaHei')
         self.position = config.get('position', 'top-right')
-        self.width = config.get('width', 400)
-        self.max_height = config.get('max_height', 600)
+        self.width = config.get('width', 800)
+        self.max_height = config.get('max_height', 1000)
 
         # 拖动相关
         self.drag_position = QPoint()
@@ -48,17 +49,16 @@ class OverlayWindow(QWidget):
         self._setup_window()
 
     def _init_ui(self):
-        """初始化界面"""
+        """初始化界面 - 两列布局"""
         # 主布局
         self.main_layout = QVBoxLayout()
         self.main_layout.setContentsMargins(15, 15, 15, 15)
         self.main_layout.setSpacing(10)
 
-        # 问题区域
+        # ===== 顶部：问题区域 =====
         self.question_label = QLabel("[问题]")
         self.question_label.setFont(QFont(self.font_family, self.font_size - 2, QFont.Bold))
-        self.question_label.setStyleSheet("color: #FFD700;")  # 金色
-        self.question_label.setWordWrap(True)
+        self.question_label.setStyleSheet("color: #FFD700;")
         self.main_layout.addWidget(self.question_label)
 
         self.question_text = QLabel("")
@@ -73,54 +73,40 @@ class OverlayWindow(QWidget):
         separator.setStyleSheet("background-color: #555555;")
         self.main_layout.addWidget(separator)
 
-        # 答案区域
-        self.answer_label = QLabel("[答案]")
-        self.answer_label.setFont(QFont(self.font_family, self.font_size - 2, QFont.Bold))
-        self.answer_label.setStyleSheet("color: #00BFFF;")  # 深蓝色
-        self.main_layout.addWidget(self.answer_label)
+        # ===== 两列区域 =====
+        columns_layout = QHBoxLayout()
+        columns_layout.setSpacing(15)
 
-        self.answer_text = QTextEdit()
-        self.answer_text.setFont(QFont(self.font_family, self.font_size))
-        self.answer_text.setStyleSheet("""
-            QTextEdit {
-                color: #FFFFFF;
-                background-color: rgba(0, 0, 0, 150);
-                border: 1px solid #555555;
-                border-radius: 5px;
-                padding: 5px;
-            }
-        """)
-        self.answer_text.setReadOnly(True)
-        self.answer_text.setMaximumHeight(200)
-        self.main_layout.addWidget(self.answer_text)
+        # ----- 左列：关键点 + 代码示例 -----
+        left_column = QVBoxLayout()
+        left_column.setSpacing(10)
 
-        # 关键点区域
+        # 关键点
         self.key_points_label = QLabel("[关键点]")
         self.key_points_label.setFont(QFont(self.font_family, self.font_size - 2, QFont.Bold))
-        self.key_points_label.setStyleSheet("color: #90EE90;")  # 浅绿色
-        self.main_layout.addWidget(self.key_points_label)
+        self.key_points_label.setStyleSheet("color: #90EE90;")
+        left_column.addWidget(self.key_points_label)
 
         self.key_points_text = QTextEdit()
-        self.key_points_text.setFont(QFont(self.font_family, self.font_size))
+        self.key_points_text.setFont(QFont(self.font_family, self.font_size - 1))
         self.key_points_text.setStyleSheet("""
             QTextEdit {
                 color: #FFFFFF;
                 background-color: rgba(0, 0, 0, 150);
                 border: 1px solid #555555;
                 border-radius: 5px;
-                padding: 5px;
+                padding: 8px;
             }
         """)
         self.key_points_text.setReadOnly(True)
-        self.key_points_text.setMaximumHeight(150)
-        self.main_layout.addWidget(self.key_points_text)
+        self.key_points_text.setMinimumHeight(150)
+        left_column.addWidget(self.key_points_text)
 
-        # 代码示例区域
+        # 代码示例
         self.code_label = QLabel("[代码示例]")
         self.code_label.setFont(QFont(self.font_family, self.font_size - 2, QFont.Bold))
-        self.code_label.setStyleSheet("color: #FFB6C1;")  # 浅粉色
-        self.code_label.hide()
-        self.main_layout.addWidget(self.code_label)
+        self.code_label.setStyleSheet("color: #FFB6C1;")
+        left_column.addWidget(self.code_label)
 
         self.code_text = QTextEdit()
         self.code_text.setFont(QFont("Consolas", self.font_size - 1))
@@ -130,14 +116,50 @@ class OverlayWindow(QWidget):
                 background-color: rgba(0, 0, 0, 200);
                 border: 1px solid #555555;
                 border-radius: 5px;
-                padding: 5px;
+                padding: 8px;
                 font-family: Consolas, monospace;
             }
         """)
         self.code_text.setReadOnly(True)
-        self.code_text.setMaximumHeight(200)
-        self.code_text.hide()
-        self.main_layout.addWidget(self.code_text)
+        left_column.addWidget(self.code_text)
+
+        # 左列容器
+        left_widget = QWidget()
+        left_widget.setLayout(left_column)
+        left_widget.setFixedWidth(300)  # 左列固定宽度
+
+        # ----- 右列：完整答案 -----
+        right_column = QVBoxLayout()
+        right_column.setSpacing(10)
+
+        self.answer_label = QLabel("[完整答案]")
+        self.answer_label.setFont(QFont(self.font_family, self.font_size - 2, QFont.Bold))
+        self.answer_label.setStyleSheet("color: #00BFFF;")
+        right_column.addWidget(self.answer_label)
+
+        self.answer_text = QTextEdit()
+        self.answer_text.setFont(QFont(self.font_family, self.font_size))
+        self.answer_text.setStyleSheet("""
+            QTextEdit {
+                color: #FFFFFF;
+                background-color: rgba(0, 0, 0, 150);
+                border: 1px solid #555555;
+                border-radius: 5px;
+                padding: 10px;
+            }
+        """)
+        self.answer_text.setReadOnly(True)
+        right_column.addWidget(self.answer_text)
+
+        # 右列容器
+        right_widget = QWidget()
+        right_widget.setLayout(right_column)
+
+        # 添加到两列布局
+        columns_layout.addWidget(left_widget)
+        columns_layout.addWidget(right_widget, 1)  # 右列拉伸
+
+        self.main_layout.addLayout(columns_layout, 1)  # 两列区域拉伸
 
         self.setLayout(self.main_layout)
 
@@ -210,9 +232,31 @@ class OverlayWindow(QWidget):
         self.is_dragging = False
         event.accept()
 
+    def show_streaming(self, question: str, text: str):
+        """
+        流式显示文本
+
+        Args:
+            question: 问题
+            text: 当前已生成的文本
+        """
+        # 更新问题
+        if not self.isVisible():
+            self.current_question = question
+            self.question_text.setText(question)
+            self.show()
+            self.activateWindow()
+
+        # 实时显示原始文本
+        self.answer_text.setText(text)
+        # 滚动到底部
+        self.answer_text.verticalScrollBar().setValue(
+            self.answer_text.verticalScrollBar().maximum()
+        )
+
     def show_answer(self, question: str, answer_data):
         """
-        显示答案
+        显示最终格式化答案
 
         Args:
             question: 问题
