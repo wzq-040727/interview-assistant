@@ -31,7 +31,12 @@ pip install -r requirements.txt
 ```
 
 3. 配置 API：
-编辑 `config/settings.yaml`，填入你的 API Key。
+推荐通过环境变量 `INTERVIEW_ASSISTANT_AI_API_KEY` 设置 API Key，或创建已忽略的本地配置文件 `config/settings.local.yaml` 覆盖默认值：
+
+```yaml
+ai:
+  api_key: "your-real-api-key"
+```
 
 ## 使用方法
 

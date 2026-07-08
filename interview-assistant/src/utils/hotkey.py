@@ -5,7 +5,6 @@
 
 from pynput import keyboard
 from typing import Callable, Optional
-import threading
 
 
 class HotkeyManager:
@@ -70,14 +69,40 @@ class HotkeyManager:
             按键名称
         """
         try:
-            if hasattr(key, 'char'):
-                return key.char.lower() if key.char else None
+            key_char = getattr(key, 'char', None)
+            if key_char:
+                key_name = key_char.lower()
             elif hasattr(key, 'name'):
-                return key.name.lower()
+                key_name = key.name.lower()
             else:
-                return str(key).lower().replace('key.', '')
+                key_name = str(key).lower().replace('key.', '')
+
+            return self._normalize_key_name(key_name)
         except Exception:
             return None
+
+    def _normalize_key_name(self, key_name: str) -> str:
+        """统一左右修饰键名称"""
+        modifier_aliases = {
+            'ctrl_l': 'ctrl',
+            'ctrl_r': 'ctrl',
+            'control': 'ctrl',
+            'control_l': 'ctrl',
+            'control_r': 'ctrl',
+            'alt_l': 'alt',
+            'alt_r': 'alt',
+            'shift_l': 'shift',
+            'shift_r': 'shift',
+            'cmd': 'win',
+            'cmd_l': 'win',
+            'cmd_r': 'win',
+            'super': 'win',
+            'super_l': 'win',
+            'super_r': 'win',
+            'win_l': 'win',
+            'win_r': 'win',
+        }
+        return modifier_aliases.get(key_name, key_name)
 
     def _is_modifier(self, key_name: str) -> bool:
         """
@@ -126,7 +151,7 @@ class HotkeyManager:
                 self.pressed_keys.clear()
                 # 调用回调
                 if self.toggle_callback:
-                    threading.Thread(target=self.toggle_callback, daemon=True).start()
+                    self.toggle_callback()
 
     def _on_release(self, key):
         """

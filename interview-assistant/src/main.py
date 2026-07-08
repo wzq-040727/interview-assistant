@@ -16,6 +16,7 @@ class AnswerSignal(QObject):
     """答案信号，用于线程间通信"""
     answer_ready = pyqtSignal(str, object)  # 完整答案
     stream_update = pyqtSignal(str, str)  # 问题, 当前文本
+    toggle_requested = pyqtSignal()  # 快捷键切换悬浮窗
 
 
 # 添加项目根目录到路径
@@ -109,7 +110,7 @@ class InterviewAssistant:
 
             # 初始化快捷键管理器
             self.hotkey_manager = HotkeyManager(
-                toggle_callback=self.overlay.toggle,
+                toggle_callback=self.answer_signal.toggle_requested.emit,
                 hotkey=ui_config.get('hotkey', 'ctrl+b')
             )
 
@@ -127,6 +128,7 @@ class InterviewAssistant:
             # 连接信号（用于线程间通信）
             self.answer_signal.answer_ready.connect(self._show_answer_in_main_thread)
             self.answer_signal.stream_update.connect(self._update_stream_in_main_thread)
+            self.answer_signal.toggle_requested.connect(self.overlay.toggle)
 
             print("所有模块初始化完成")
             return True
@@ -196,7 +198,7 @@ class InterviewAssistant:
         if is_segment_end and segment_data:
             text = self.speech_recognizer.recognize(
                 segment_data,
-                sample_rate=self.config.get('audio.sample_rate', 16000),
+                sample_rate=self.audio_capture.sample_rate,
                 channels=self.config.get('audio.channels', 1)
             )
 

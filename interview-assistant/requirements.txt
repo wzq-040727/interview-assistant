@@ -9,8 +9,14 @@ PyQt5==5.15.11
 # 快捷键监听
 pynput==1.7.7
 
+# 语音识别
+SpeechRecognition==3.10.4
+
 # HTTP 请求
 requests==2.32.3
+
+# 音频处理
+numpy==1.26.4
 
 # YAML 配置
 PyYAML==6.0.2

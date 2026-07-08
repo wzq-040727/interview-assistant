@@ -12,6 +12,11 @@ from pathlib import Path
 class Config:
     """配置管理类"""
 
+    ENV_OVERRIDES = {
+        'INTERVIEW_ASSISTANT_AI_API_KEY': 'ai.api_key',
+        'INTERVIEW_ASSISTANT_RECOGNITION_API_KEY': 'recognition.api_key',
+    }
+
     # 默认配置
     DEFAULT_CONFIG = {
         'audio': {
@@ -93,6 +98,19 @@ class Config:
             self.save()
             print(f"已创建默认配置文件：{self.config_path}")
 
+        local_config_path = self.config_path.with_name('settings.local.yaml')
+        if local_config_path.exists():
+            try:
+                with open(local_config_path, 'r', encoding='utf-8') as f:
+                    local_config = yaml.safe_load(f)
+                    if local_config:
+                        self.config = self._merge_config(self.config, local_config)
+                print(f"本地配置已加载：{local_config_path}")
+            except Exception as e:
+                print(f"加载本地配置文件失败：{e}")
+
+        self._apply_env_overrides()
+
     def save(self):
         """保存配置到文件"""
         try:
@@ -146,6 +164,13 @@ class Config:
 
         # 设置值
         config[keys[-1]] = value
+
+    def _apply_env_overrides(self):
+        """使用环境变量覆盖敏感配置"""
+        for env_name, config_key in self.ENV_OVERRIDES.items():
+            env_value = os.getenv(env_name)
+            if env_value:
+                self.set(config_key, env_value)
 
     def get_section(self, section: str) -> Dict[str, Any]:
         """
