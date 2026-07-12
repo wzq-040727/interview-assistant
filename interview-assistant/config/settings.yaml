@@ -1,0 +1,58 @@
+# 面试练习助手 - 配置文件
+
+# 音频配置
+audio:
+  source: "microphone"      # system（系统音频）/ microphone（麦克风）
+  sample_rate: 16000
+  channels: 1
+  chunk_size: 1024
+
+# 语音识别配置
+recognition:
+  engine: "google"           # google（免费在线）或 sphinx（离线）
+  language: "zh-CN"          # 语言代码
+
+# AI 答案生成配置
+ai:
+  base_url: "https://token-plan-cn.xiaomimimo.com/v1/"
+  api_key: "your-api-key"
+  model: "mimo-v2.5-pro"
+  max_tokens: 800
+  temperature: 0.3
+
+# 界面配置
+ui:
+  hotkey: "ctrl+b"
+  opacity: 0.9
+  font_size: 10
+  font_family: "Microsoft YaHei"
+  position: "top-right"     # top-left / top-right / bottom-left / bottom-right
+  width: 1000
+  max_height: 900
+
+# 问题过滤配置
+filter:
+  min_question_length: 10
+  max_question_length: 500
+  ignore_patterns:
+    - "你好"
+    - "稍等"
+    - "下一个"
+    - "开始"
+    - "结束"
+    - "可以了"
+    - "好的"
+  question_keywords:
+    - "什么"
+    - "如何"
+    - "为什么"
+    - "请解释"
+    - "请描述"
+    - "请实现"
+    - "请设计"
+    - "请编写"
+    - "请写"
+    - "怎么做"
+    - "原理"
+    - "区别"
+    - "优缺点"
